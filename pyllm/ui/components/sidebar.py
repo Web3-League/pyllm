@@ -1,10 +1,16 @@
 """Sidebar component."""
 
 import streamlit as st
-import streamlit_shadcn_ui as ui
 
 from pyllm.ui.api import get_client
 from pyllm.ui.state import clear_messages
+
+# Try to import streamlit_shadcn_ui, fallback to native streamlit
+try:
+    import streamlit_shadcn_ui as ui
+    HAS_SHADCN = True
+except ImportError:
+    HAS_SHADCN = False
 
 
 def render_sidebar():
@@ -17,11 +23,20 @@ def render_sidebar():
         health = client.health()
 
         if health and health.get("model_loaded"):
-            ui.badge(text="Connected", variant="default", key="status_badge")
+            if HAS_SHADCN and hasattr(ui, 'badge'):
+                ui.badge(text="Connected", variant="default", key="status_badge")
+            else:
+                st.success("Connected")
         elif health:
-            ui.badge(text="No Model", variant="secondary", key="status_badge")
+            if HAS_SHADCN and hasattr(ui, 'badge'):
+                ui.badge(text="No Model", variant="secondary", key="status_badge")
+            else:
+                st.warning("No Model")
         else:
-            ui.badge(text="Offline", variant="destructive", key="status_badge")
+            if HAS_SHADCN and hasattr(ui, 'badge'):
+                ui.badge(text="Offline", variant="destructive", key="status_badge")
+            else:
+                st.error("Offline")
 
         st.markdown("---")
 
@@ -61,9 +76,14 @@ def render_sidebar():
         st.markdown("---")
 
         # Actions
-        if ui.button("Clear Chat", key="clear_btn", variant="outline"):
-            clear_messages()
-            st.rerun()
+        if HAS_SHADCN and hasattr(ui, 'button'):
+            if ui.button("Clear Chat", key="clear_btn", variant="outline"):
+                clear_messages()
+                st.rerun()
+        else:
+            if st.button("Clear Chat", key="clear_btn"):
+                clear_messages()
+                st.rerun()
 
         return {
             "temperature": temperature,
