@@ -8,7 +8,7 @@ with open("README.md", encoding="utf-8") as f:
 
 setup(
     name="pyllm-inference",
-    version="1.0.1",
+    version="1.1.0",
     author="nano3",
     author_email="",
     description="PyLLM: LLM Inference with Streaming Chat and OpenAI-compatible API",
@@ -29,6 +29,7 @@ setup(
         "torch>=2.0.0",
         "transformers>=4.30.0",
         "safetensors>=0.3.0",
+        "tokenizers>=0.15.0",
         "fastapi>=0.100.0",
         "uvicorn>=0.23.0",
         "pydantic>=2.0.0",

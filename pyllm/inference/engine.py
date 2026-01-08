@@ -29,6 +29,35 @@ class GenerationConfig:
     stream: bool = True
 
 
+class INLTokenizerWrapper:
+    """Wrapper for HuggingFace tokenizers to provide consistent API."""
+
+    def __init__(self, tokenizer):
+        self._tokenizer = tokenizer
+        self.eos_token_id = 2  # </s>
+        self.pad_token_id = 0  # <pad>
+        self.bos_token_id = 1  # <s>
+
+    def __call__(self, text: str, return_tensors: str = None, **kwargs):
+        encoding = self._tokenizer.encode(text)
+        input_ids = encoding.ids
+
+        if return_tensors == "pt":
+            return type('Encoding', (), {'input_ids': torch.tensor([input_ids])})()
+
+        return type('Encoding', (), {'input_ids': input_ids})()
+
+    def decode(self, token_ids, skip_special_tokens: bool = True) -> str:
+        if isinstance(token_ids, torch.Tensor):
+            token_ids = token_ids.tolist()
+        if isinstance(token_ids, int):
+            token_ids = [token_ids]
+        return self._tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
+
+    def encode(self, text: str) -> List[int]:
+        return self._tokenizer.encode(text).ids
+
+
 class InferenceEngine:
     """
     LLM Inference Engine.
@@ -79,47 +108,132 @@ class InferenceEngine:
     def _try_load_inl_llm(self, path: str) -> bool:
         """Try loading as INL-LLM model."""
         try:
-            from transformers import AutoTokenizer
+            import json
+            from pathlib import Path
+            from tokenizers import Tokenizer as HFTokenizer
 
-            # Check if it's a safetensors file
-            if path.endswith(".safetensors") or path.endswith(".pt"):
-                from safetensors.torch import load_file
+            path_obj = Path(path)
 
-                # Try v2 architecture first
+            # Determine model directory and weights file
+            if path_obj.is_file() and (path.endswith(".safetensors") or path.endswith(".pt")):
+                model_dir = path_obj.parent
+                weights_path = path_obj
+            elif path_obj.is_dir():
+                model_dir = path_obj
+                if (model_dir / "model.safetensors").exists():
+                    weights_path = model_dir / "model.safetensors"
+                elif (model_dir / "pytorch_model.bin").exists():
+                    weights_path = model_dir / "pytorch_model.bin"
+                else:
+                    return False
+            else:
+                return False
+
+            # Load config.json if it exists
+            config_path = model_dir / "config.json"
+            if config_path.exists():
+                with open(config_path, "r") as f:
+                    model_config = json.load(f)
+                logger.info(f"Loaded config from {config_path}")
+            else:
+                logger.warning("No config.json found, using defaults")
+                model_config = {}
+
+            # Extract model parameters - support both HuggingFace and INL style
+            if "inl_config" in model_config:
+                inl_cfg = model_config["inl_config"]
+                vocab_size = model_config.get("vocab_size", 100000)
+                d_model = inl_cfg.get("d_model", 768)
+                num_layers = inl_cfg.get("num_layers", 12)
+                num_heads = inl_cfg.get("num_heads", 12)
+                num_kv_heads = inl_cfg.get("num_kv_heads", 4)
+                feedforward_dim = inl_cfg.get("feedforward_dim", 3072)
+                num_iterations = inl_cfg.get("num_iterations_per_layer", 2)
+            else:
+                vocab_size = model_config.get("vocab_size", 100000)
+                d_model = model_config.get("hidden_size", 768)
+                num_layers = model_config.get("num_hidden_layers", 12)
+                num_heads = model_config.get("num_attention_heads", 12)
+                num_kv_heads = model_config.get("num_key_value_heads", 4)
+                feedforward_dim = model_config.get("intermediate_size", 3072)
+                num_iterations = model_config.get("num_iterations_per_layer", 2)
+
+            logger.info(f"Model config: vocab={vocab_size}, d_model={d_model}, layers={num_layers}, heads={num_heads}")
+
+            # Try INL-LLM v3 first, then v2
+            model_loaded = False
+
+            try:
+                from inl_llm_v3.models.integrator_language_model import UltraOptimizedIntegratorLanguageModel
+                self.model = UltraOptimizedIntegratorLanguageModel(
+                    vocab_size=vocab_size,
+                    d_model=d_model,
+                    num_layers=num_layers,
+                    num_heads=num_heads,
+                    num_kv_heads=num_kv_heads,
+                    feedforward_dim=feedforward_dim,
+                    num_iterations_per_layer=num_iterations,
+                    max_seq_len=self.config.max_seq_len
+                )
+                model_loaded = True
+                logger.info("Using INL-LLM v3 architecture")
+            except ImportError:
+                pass
+
+            if not model_loaded:
                 try:
                     from inl_llm import IntegratorLanguageModel
-
                     self.model = IntegratorLanguageModel(
-                        vocab_size=50261,
-                        d_model=1280,
-                        num_layers=18,
-                        num_heads=20,
-                        num_iterations_per_layer=2,
-                        feedforward_dim=5120,
+                        vocab_size=vocab_size,
+                        d_model=d_model,
+                        num_layers=num_layers,
+                        num_heads=num_heads,
+                        num_iterations_per_layer=num_iterations,
+                        feedforward_dim=feedforward_dim,
                         max_seq_len=self.config.max_seq_len
                     )
-
-                    if path.endswith(".safetensors"):
-                        state_dict = load_file(path)
-                    else:
-                        state_dict = torch.load(path, map_location="cpu")
-
-                    self.model.load_state_dict(state_dict)
-                    self.model.to(self.device)
-                    self.model.eval()
-
-                    self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
-                    self.tokenizer.pad_token = self.tokenizer.eos_token
-
-                    return True
-
+                    model_loaded = True
+                    logger.info("Using INL-LLM v2 architecture")
                 except ImportError:
                     pass
 
-            return False
+            if not model_loaded:
+                logger.error("No INL-LLM module found. Install with: pip install inl-llm-v3")
+                return False
+
+            # Load weights
+            if str(weights_path).endswith(".safetensors"):
+                from safetensors.torch import load_file
+                state_dict = load_file(str(weights_path))
+            else:
+                checkpoint = torch.load(str(weights_path), map_location="cpu", weights_only=False)
+                if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                    state_dict = checkpoint["model_state_dict"]
+                else:
+                    state_dict = checkpoint
+
+            self.model.load_state_dict(state_dict)
+            self.model.to(self.device)
+            self.model.eval()
+
+            # Load tokenizer
+            tokenizer_path = model_dir / "tokenizer.json"
+            if tokenizer_path.exists():
+                self.tokenizer = HFTokenizer.from_file(str(tokenizer_path))
+                self.tokenizer = INLTokenizerWrapper(self.tokenizer)
+                logger.info(f"Loaded tokenizer from {tokenizer_path}")
+            else:
+                from transformers import AutoTokenizer
+                self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+                logger.warning("No tokenizer.json found, using GPT-2 tokenizer")
+
+            return True
 
         except Exception as e:
             logger.debug(f"INL-LLM load failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _try_load_transformers(self, path: str) -> bool:
@@ -193,7 +307,10 @@ class InferenceEngine:
                 outputs = self.model(generated)
 
                 # Get logits for last token
-                if hasattr(outputs, "logits"):
+                # INL-LLM returns (logits, iterations, budget_info)
+                if isinstance(outputs, tuple):
+                    logits = outputs[0][:, -1, :]
+                elif hasattr(outputs, "logits"):
                     logits = outputs.logits[:, -1, :]
                 else:
                     logits = outputs[:, -1, :]
