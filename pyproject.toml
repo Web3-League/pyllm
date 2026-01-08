@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyllm-inference"
-version = "1.3.1"
+version = "1.3.2"
 description = "PyLLM: LLM Inference with Streaming Chat and OpenAI-compatible API"
 readme = "README.md"
 license = "MIT"

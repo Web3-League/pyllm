@@ -25,6 +25,24 @@ from typing import Optional, Tuple, List
 import math
 
 
+class LowRankEmbedding(nn.Module):
+    """
+    Low-rank embedding used in v2 checkpoints.
+
+    Instead of vocab_size x d_model, uses:
+    - embed_low: vocab_size x rank
+    - project_up: rank x d_model
+    """
+    def __init__(self, vocab_size: int, d_model: int, rank_ratio: float = 0.125):
+        super().__init__()
+        rank = max(64, int(d_model * rank_ratio))
+        self.embed_low = nn.Embedding(vocab_size, rank)
+        self.project_up = nn.Linear(rank, d_model, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.project_up(self.embed_low(x))
+
+
 class PositionalEncoding(nn.Module):
     """Sinusoidal positional encoding (v2 style)."""
     def __init__(self, d_model: int, max_len: int = 5000):
@@ -257,8 +275,8 @@ class IntegratorLanguageModelLegacy(nn.Module):
         if feedforward_dim is None:
             feedforward_dim = 4 * d_model
 
-        # Token embedding (standard)
-        self.token_embedding = nn.Embedding(vocab_size, d_model)
+        # Token embedding - use low-rank like the checkpoint
+        self.token_embedding = LowRankEmbedding(vocab_size, d_model, rank_ratio=0.125)
 
         # Sinusoidal positional encoding (v2 style)
         self.pos_encoding = PositionalEncoding(d_model, max_seq_len)
