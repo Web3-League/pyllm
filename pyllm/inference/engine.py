@@ -276,6 +276,14 @@ class InferenceEngine:
             self.model.to(self.device)
             self.model.eval()
 
+            # Try to compile model for faster inference (PyTorch 2.0+)
+            if hasattr(torch, 'compile') and self.device.type == "cuda":
+                try:
+                    self.model = torch.compile(self.model, mode="reduce-overhead")
+                    logger.info("Model compiled with torch.compile (reduce-overhead mode)")
+                except Exception as e:
+                    logger.debug(f"torch.compile not available: {e}")
+
             # Load tokenizer
             tokenizer_path = model_dir / "tokenizer.json"
             if tokenizer_path.exists():
@@ -373,29 +381,73 @@ class InferenceEngine:
                 return True
         return False
 
+    def _supports_kv_cache(self) -> bool:
+        """Check if the loaded model supports KV caching."""
+        if self.model is None:
+            return False
+
+        # Check for INL-LLM v3 KV cache support
+        # INL-LLM v3 forward signature: forward(input_ids, ..., past_key_values=None, use_cache=False)
+        import inspect
+        try:
+            sig = inspect.signature(self.model.forward)
+            has_use_cache = 'use_cache' in sig.parameters
+            has_past_kv = 'past_key_values' in sig.parameters
+            if has_use_cache and has_past_kv:
+                logger.info("KV cache supported (INL-LLM v3)")
+                return True
+        except Exception:
+            pass
+
+        # Check for HuggingFace transformers style
+        if hasattr(self.model, 'config') and hasattr(self.model.config, 'use_cache'):
+            logger.info("KV cache supported (HuggingFace style)")
+            return True
+
+        logger.debug("KV cache not supported for this model")
+        return False
+
     def _generate_tokens(
         self,
         input_ids: torch.Tensor,
         config: GenerationConfig,
     ) -> Generator[str, None, None]:
-        """Generate tokens one at a time with advanced anti-repetition."""
+        """Generate tokens one at a time with advanced anti-repetition and KV caching."""
         generated = input_ids.clone()
         generated_list = input_ids[0].tolist()
         past_tokens = set(generated_list)
         loop_count = 0
 
-        for step in range(config.max_new_tokens):
-            # Forward pass
-            with torch.no_grad():
-                outputs = self.model(generated)
+        # KV Cache for INL-LLM (huge speedup!)
+        past_key_values = None
+        use_kv_cache = self._supports_kv_cache()
 
-                # Get logits for last token
-                # INL-LLM returns (logits, iterations, budget_info)
+        for step in range(config.max_new_tokens):
+            # Forward pass with KV cache optimization
+            with torch.no_grad():
+                if use_kv_cache and step > 0:
+                    # Only process last token with cached KV
+                    model_input = generated[:, -1:]
+                    outputs = self.model(model_input, past_key_values=past_key_values, use_cache=True)
+                else:
+                    # First step: process full sequence
+                    if use_kv_cache:
+                        outputs = self.model(generated, use_cache=True)
+                    else:
+                        outputs = self.model(generated)
+
+                # Get logits for last token and update cache
+                # INL-LLM returns (logits, aux_info, past_key_values) when use_cache=True
                 # Complexity returns CausalLMOutput with .logits
                 if isinstance(outputs, tuple):
                     logits = outputs[0][:, -1, :]
+                    # Update KV cache if returned (INL-LLM v3 returns it as 3rd element)
+                    if use_kv_cache and len(outputs) >= 3 and outputs[2] is not None:
+                        past_key_values = outputs[2]
                 elif hasattr(outputs, "logits"):
                     logits = outputs.logits[:, -1, :]
+                    if use_kv_cache and hasattr(outputs, "past_key_values"):
+                        past_key_values = outputs.past_key_values
                 else:
                     logits = outputs[:, -1, :]
 
