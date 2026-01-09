@@ -69,6 +69,7 @@ class InferenceEngine:
 
     Supports:
     - INL-LLM models
+    - Complexity models (Token-Routed MLP)
     - HuggingFace transformers
     - Streaming generation
     """
@@ -99,9 +100,9 @@ class InferenceEngine:
 
         logger.info(f"Using device: {self.device}")
 
-        # Try loading as INL-LLM first
+        # Try loading as INL-LLM/Complexity first
         if self._try_load_inl_llm(path):
-            logger.info("Loaded as INL-LLM model")
+            logger.info("Loaded as INL-LLM/Complexity model")
         elif self._try_load_transformers(path):
             logger.info("Loaded as Transformers model")
         else:
@@ -111,7 +112,7 @@ class InferenceEngine:
         logger.info("Model loaded successfully")
 
     def _try_load_inl_llm(self, path: str) -> bool:
-        """Try loading as INL-LLM model."""
+        """Try loading as INL-LLM or Complexity model."""
         try:
             import json
             from pathlib import Path
@@ -169,6 +170,7 @@ class InferenceEngine:
             # Detect model type from config
             model_type = model_config.get("model_type", "")
             is_v2_legacy = "v2" in model_type.lower() or model_type == "inl-llm-v2"
+            is_complexity = model_type == "complexity" or "ComplexityForCausalLM" in str(model_config.get("architectures", []))
 
             # Load weights first to detect architecture
             if str(weights_path).endswith(".safetensors"):
@@ -181,6 +183,13 @@ class InferenceEngine:
                 else:
                     state_dict = checkpoint
 
+            # Detect Complexity architecture from state dict keys
+            has_token_routed_mlp = any("mlp.experts" in k for k in state_dict.keys())
+            has_qk_norm = any("q_norm" in k or "k_norm" in k for k in state_dict.keys())
+            if has_token_routed_mlp and has_qk_norm:
+                is_complexity = True
+                logger.info("Detected Complexity architecture from state dict keys (Token-Routed MLP + QK Norm)")
+
             # Detect v2 architecture from state dict keys
             has_qkv_proj = any("qkv_proj" in k for k in state_dict.keys())
             has_ff_indexed = any("ff.0." in k for k in state_dict.keys())
@@ -192,7 +201,36 @@ class InferenceEngine:
 
             model_loaded = False
 
-            # Try INL-LLM v3 first
+            # Try Complexity model first (if detected)
+            if is_complexity and not model_loaded:
+                try:
+                    from complexity import ComplexityConfig, ComplexityForCausalLM
+
+                    # Get Complexity-specific config
+                    num_experts = model_config.get("num_experts", 4)
+                    use_qk_norm = model_config.get("use_qk_norm", True)
+                    use_token_routed_mlp = model_config.get("use_token_routed_mlp", True)
+
+                    config = ComplexityConfig(
+                        vocab_size=vocab_size,
+                        hidden_size=d_model,
+                        intermediate_size=feedforward_dim,
+                        num_hidden_layers=num_layers,
+                        num_attention_heads=num_heads,
+                        num_key_value_heads=num_kv_heads,
+                        max_position_embeddings=self.config.max_seq_len,
+                        use_token_routed_mlp=use_token_routed_mlp,
+                        num_experts=num_experts,
+                        use_qk_norm=use_qk_norm,
+                    )
+                    self.model = ComplexityForCausalLM(config)
+                    model_loaded = True
+                    logger.info("Using Complexity architecture (Token-Routed MLP)")
+                except ImportError as e:
+                    logger.debug(f"Complexity import failed: {e}")
+                    pass
+
+            # Try INL-LLM v3
             if not model_loaded:
                 try:
                     from inl_llm_v3.models.integrator_language_model import UltraOptimizedIntegratorLanguageModel
@@ -230,7 +268,7 @@ class InferenceEngine:
                     pass
 
             if not model_loaded:
-                logger.error("No INL-LLM module found. Install with: pip install inl-llm")
+                logger.error("No compatible model module found. Install with: pip install complexity-model or pip install inl-llm")
                 return False
 
             # Load weights
@@ -253,7 +291,7 @@ class InferenceEngine:
             return True
 
         except Exception as e:
-            logger.debug(f"INL-LLM load failed: {e}")
+            logger.debug(f"INL-LLM/Complexity load failed: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -353,6 +391,7 @@ class InferenceEngine:
 
                 # Get logits for last token
                 # INL-LLM returns (logits, iterations, budget_info)
+                # Complexity returns CausalLMOutput with .logits
                 if isinstance(outputs, tuple):
                     logits = outputs[0][:, -1, :]
                 elif hasattr(outputs, "logits"):
