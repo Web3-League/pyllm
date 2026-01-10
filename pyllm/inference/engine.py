@@ -262,6 +262,15 @@ class InferenceEngine:
             if not model_loaded:
                 try:
                     from inl_llm_v3.models.integrator_language_model import UltraOptimizedIntegratorLanguageModel
+
+                    # MoE parameters from config
+                    use_moe = model_config.get("use_moe", False)
+                    num_experts = model_config.get("num_experts", 8)
+                    moe_top_k = model_config.get("moe_top_k", 2)
+
+                    if use_moe:
+                        logger.info(f"MoE enabled: {num_experts} experts, top-k={moe_top_k}")
+
                     self.model = UltraOptimizedIntegratorLanguageModel(
                         vocab_size=vocab_size,
                         d_model=d_model,
@@ -270,7 +279,10 @@ class InferenceEngine:
                         num_kv_heads=num_kv_heads,
                         feedforward_dim=feedforward_dim,
                         num_iterations_per_layer=num_iterations,
-                        max_seq_len=max_seq_len
+                        max_seq_len=max_seq_len,
+                        use_moe=use_moe,
+                        num_experts=num_experts,
+                        moe_top_k=moe_top_k
                     )
                     model_loaded = True
                     logger.info("Using INL-LLM v3 architecture")
