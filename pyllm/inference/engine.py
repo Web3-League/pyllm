@@ -190,7 +190,10 @@ class InferenceEngine:
                 feedforward_dim = model_config.get("feedforward_dim", model_config.get("intermediate_size", 3072))
                 num_iterations = model_config.get("num_iterations_per_layer", 2)
 
-            logger.info(f"Model config: vocab={vocab_size}, d_model={d_model}, layers={num_layers}, heads={num_heads}")
+            # Get max_seq_len from model config (override pyllm default if specified)
+            max_seq_len = model_config.get("max_seq_len", model_config.get("max_position_embeddings", self.config.max_seq_len))
+
+            logger.info(f"Model config: vocab={vocab_size}, d_model={d_model}, layers={num_layers}, heads={num_heads}, ff={feedforward_dim}, max_seq={max_seq_len}")
 
             # Detect model type from config
             model_type = model_config.get("model_type", "")
@@ -267,7 +270,7 @@ class InferenceEngine:
                         num_kv_heads=num_kv_heads,
                         feedforward_dim=feedforward_dim,
                         num_iterations_per_layer=num_iterations,
-                        max_seq_len=self.config.max_seq_len
+                        max_seq_len=max_seq_len
                     )
                     model_loaded = True
                     logger.info("Using INL-LLM v3 architecture")
@@ -285,7 +288,7 @@ class InferenceEngine:
                         num_heads=num_heads,
                         num_iterations_per_layer=num_iterations,
                         feedforward_dim=feedforward_dim,
-                        max_seq_len=self.config.max_seq_len
+                        max_seq_len=max_seq_len
                     )
                     model_loaded = True
                     logger.info("Using INL-LLM v2 architecture (from pip)")
