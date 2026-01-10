@@ -42,9 +42,9 @@ def main():
     serve_parser.add_argument(
         "--device",
         type=str,
-        default="cuda",
-        choices=["cuda", "cpu", "mps"],
-        help="Device to use (default: cuda)",
+        default="auto",
+        choices=["auto", "cuda", "cpu", "mps", "directml"],
+        help="Device to use (default: auto - detects best available)",
     )
     serve_parser.add_argument(
         "--reload",
@@ -95,9 +95,9 @@ def main():
     gen_parser.add_argument(
         "--device",
         type=str,
-        default="cuda",
-        choices=["cuda", "cpu", "mps"],
-        help="Device to use (default: cuda)",
+        default="auto",
+        choices=["auto", "cuda", "cpu", "mps", "directml"],
+        help="Device to use (default: auto - detects best available)",
     )
 
     # Chat command
@@ -111,9 +111,9 @@ def main():
     chat_parser.add_argument(
         "--device",
         type=str,
-        default="cuda",
-        choices=["cuda", "cpu", "mps"],
-        help="Device to use (default: cuda)",
+        default="auto",
+        choices=["auto", "cuda", "cpu", "mps", "directml"],
+        help="Device to use (default: auto - detects best available)",
     )
     chat_parser.add_argument(
         "--system",

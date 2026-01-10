@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyllm-inference"
-version = "1.6.0"
+version = "1.7.0"
 description = "PyLLM: LLM Inference with Streaming Chat, OpenAI-compatible API, and TPU-INL acceleration"
 readme = "README.md"
 license = "MIT"
@@ -52,7 +52,11 @@ tpu-inl = [
     "tpu-inl>=0.1.0",
 ]
 cuda = [
-    "tpu-inl[cuda]>=0.1.0",
+    "tpu-inl[cuda]>=0.2.0",
+]
+directml = [
+    "tpu-inl[directml]>=0.2.0",
+    "torch-directml>=0.2.0",
 ]
 all = [
     "tpu-inl>=0.1.0",
