@@ -14,6 +14,23 @@ class StreamChunk:
     finished: bool = False
 
 
+# Sentinel to signal end of iteration (avoids StopIteration in async context)
+_DONE = object()
+
+
+def _safe_next(gen):
+    """
+    Safely get next item from generator.
+
+    Returns _DONE sentinel instead of raising StopIteration,
+    which doesn't work well with asyncio executors in Python 3.7+.
+    """
+    try:
+        return next(gen)
+    except StopIteration:
+        return _DONE
+
+
 class StreamingGenerator:
     """
     Async streaming generator wrapper.
@@ -37,13 +54,12 @@ class StreamingGenerator:
 
         try:
             while True:
-                # Get next token in thread pool
-                try:
-                    token = await loop.run_in_executor(None, next, gen)
-                    yield StreamChunk(text=token, finished=False)
-                except StopIteration:
+                # Get next token in thread pool using safe wrapper
+                token = await loop.run_in_executor(None, _safe_next, gen)
+                if token is _DONE:
                     yield StreamChunk(text="", finished=True)
                     break
+                yield StreamChunk(text=token, finished=False)
         except Exception as e:
             yield StreamChunk(text=f"[Error: {e}]", finished=True)
 
@@ -58,11 +74,11 @@ class StreamingGenerator:
 
         try:
             while True:
-                try:
-                    token = await loop.run_in_executor(None, next, gen)
-                    yield StreamChunk(text=token, finished=False)
-                except StopIteration:
+                # Get next token in thread pool using safe wrapper
+                token = await loop.run_in_executor(None, _safe_next, gen)
+                if token is _DONE:
                     yield StreamChunk(text="", finished=True)
                     break
+                yield StreamChunk(text=token, finished=False)
         except Exception as e:
             yield StreamChunk(text=f"[Error: {e}]", finished=True)
