@@ -32,6 +32,35 @@ def main():
     apply_styles()
     init_session_state()
 
+    # Sidebar toggle button with JavaScript
+    st.markdown("""
+    <div class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle Sidebar">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+    </div>
+    <script>
+        function toggleSidebar() {
+            const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+            const button = window.parent.document.querySelector('[data-testid="collapsedControl"]');
+            if (sidebar) {
+                const isExpanded = sidebar.getAttribute('aria-expanded') === 'true';
+                if (button) {
+                    button.click();
+                } else {
+                    // Fallback: toggle via attribute
+                    sidebar.setAttribute('aria-expanded', !isExpanded);
+                    if (isExpanded) {
+                        sidebar.style.marginLeft = '-300px';
+                    } else {
+                        sidebar.style.marginLeft = '0';
+                    }
+                }
+            }
+        }
+    </script>
+    """, unsafe_allow_html=True)
+
     # Sidebar
     settings = render_sidebar()
 

@@ -5,7 +5,7 @@ A complete LLM inference platform with streaming responses,
 chat interface, and support for multiple model backends.
 """
 
-__version__ = "1.8.2"
+__version__ = "1.8.3"
 __author__ = "nano3"
 
 from pyllm.core.config import Config
