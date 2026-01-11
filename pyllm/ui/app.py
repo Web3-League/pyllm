@@ -5,6 +5,7 @@ LLM chat interface with streaming responses.
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from pyllm.ui.state import init_session_state, get_messages, add_message, set_generating, is_generating
 from pyllm.ui.styles import apply_styles
@@ -32,8 +33,35 @@ def main():
     apply_styles()
     init_session_state()
 
-    # Sidebar toggle button with JavaScript
-    st.markdown("""
+    # Sidebar toggle button with JavaScript (using components.html for proper JS execution)
+    components.html("""
+    <style>
+        .sidebar-toggle {
+            position: fixed;
+            top: 0.75rem;
+            left: 0.75rem;
+            z-index: 999999;
+            width: 40px;
+            height: 40px;
+            background: #27272a;
+            border: 1px solid #27272a;
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: #fafafa;
+        }
+        .sidebar-toggle:hover {
+            background: #3f3f46;
+            border-color: #d4d4d8;
+        }
+        .sidebar-toggle svg {
+            width: 20px;
+            height: 20px;
+        }
+    </style>
     <div class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle Sidebar">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -41,25 +69,32 @@ def main():
     </div>
     <script>
         function toggleSidebar() {
-            const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-            const button = window.parent.document.querySelector('[data-testid="collapsedControl"]');
+            // Access parent document (Streamlit's main frame)
+            const parent = window.parent.document;
+
+            // Find the collapse button that Streamlit provides
+            const collapseBtn = parent.querySelector('[data-testid="collapsedControl"]');
+            if (collapseBtn) {
+                collapseBtn.click();
+                return;
+            }
+
+            // Fallback: directly manipulate sidebar
+            const sidebar = parent.querySelector('[data-testid="stSidebar"]');
             if (sidebar) {
                 const isExpanded = sidebar.getAttribute('aria-expanded') === 'true';
-                if (button) {
-                    button.click();
+                sidebar.setAttribute('aria-expanded', String(!isExpanded));
+
+                // Also toggle visibility
+                if (isExpanded) {
+                    sidebar.style.transform = 'translateX(-100%)';
                 } else {
-                    // Fallback: toggle via attribute
-                    sidebar.setAttribute('aria-expanded', !isExpanded);
-                    if (isExpanded) {
-                        sidebar.style.marginLeft = '-300px';
-                    } else {
-                        sidebar.style.marginLeft = '0';
-                    }
+                    sidebar.style.transform = 'translateX(0)';
                 }
             }
         }
     </script>
-    """, unsafe_allow_html=True)
+    """, height=0)
 
     # Sidebar
     settings = render_sidebar()

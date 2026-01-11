@@ -419,41 +419,12 @@ def apply_styles():
         margin-top: 0.25rem;
     }
 
-    /* ===== Sidebar Toggle Button ===== */
-    .sidebar-toggle {
-        position: fixed;
-        top: 0.75rem;
-        left: 0.75rem;
-        z-index: 999999;
-        width: 40px;
-        height: 40px;
-        background: var(--secondary);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        color: var(--foreground);
-    }
-
-    .sidebar-toggle:hover {
-        background: var(--accent);
-        border-color: var(--ring);
-    }
-
-    .sidebar-toggle svg {
-        width: 20px;
-        height: 20px;
-    }
-
-    /* Sidebar collapsed state */
+    /* ===== Sidebar collapsed state ===== */
     [data-testid="stSidebar"][aria-expanded="false"] {
-        margin-left: -300px;
+        transform: translateX(-100%);
     }
 
-    /* Adjust main content when sidebar is visible */
+    /* Adjust main content */
     .main .block-container {
         padding-left: 1rem;
         padding-right: 1rem;
