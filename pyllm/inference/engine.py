@@ -37,11 +37,39 @@ class GenerationConfig:
 class INLTokenizerWrapper:
     """Wrapper for HuggingFace tokenizers to provide consistent API."""
 
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, tokenizer_config: dict = None):
         self._tokenizer = tokenizer
-        self.eos_token_id = 2  # </s>
-        self.pad_token_id = 0  # <pad>
-        self.bos_token_id = 1  # <s>
+
+        # Default to Complexity-4 tokenizer IDs
+        # Can be overridden via tokenizer_config.json
+        if tokenizer_config:
+            # Read from tokenizer_config.json added_tokens_decoder
+            added_tokens = tokenizer_config.get("added_tokens_decoder", {})
+            self.eos_token_id = None
+            self.pad_token_id = None
+            self.bos_token_id = None
+
+            for token_id, token_info in added_tokens.items():
+                content = token_info.get("content", "")
+                if content in ["<|endoftext|>", "</s>"]:
+                    self.eos_token_id = int(token_id)
+                elif content in ["<|pad|>", "<pad>"]:
+                    self.pad_token_id = int(token_id)
+                elif content in ["<|startoftext|>", "<s>"]:
+                    self.bos_token_id = int(token_id)
+
+            # Fallback to defaults if not found
+            if self.eos_token_id is None:
+                self.eos_token_id = 0
+            if self.pad_token_id is None:
+                self.pad_token_id = 1
+            if self.bos_token_id is None:
+                self.bos_token_id = 2
+        else:
+            # Complexity-4 tokenizer defaults
+            self.eos_token_id = 0  # <|endoftext|>
+            self.pad_token_id = 1  # <|pad|>
+            self.bos_token_id = 2  # <|startoftext|>
 
     def __call__(self, text: str, return_tensors: str = None, **kwargs):
         encoding = self._tokenizer.encode(text)
@@ -316,10 +344,19 @@ class InferenceEngine:
 
             # Load tokenizer
             tokenizer_path = model_dir / "tokenizer.json"
+            tokenizer_config_path = model_dir / "tokenizer_config.json"
             if tokenizer_path.exists():
-                self.tokenizer = HFTokenizer.from_file(str(tokenizer_path))
-                self.tokenizer = INLTokenizerWrapper(self.tokenizer)
-                logger.info(f"Loaded tokenizer from {tokenizer_path}")
+                raw_tokenizer = HFTokenizer.from_file(str(tokenizer_path))
+
+                # Load tokenizer config if available
+                tokenizer_config = None
+                if tokenizer_config_path.exists():
+                    with open(tokenizer_config_path, "r") as f:
+                        tokenizer_config = json.load(f)
+                    logger.info(f"Loaded tokenizer config from {tokenizer_config_path}")
+
+                self.tokenizer = INLTokenizerWrapper(raw_tokenizer, tokenizer_config)
+                logger.info(f"Loaded tokenizer from {tokenizer_path} (eos={self.tokenizer.eos_token_id}, pad={self.tokenizer.pad_token_id}, bos={self.tokenizer.bos_token_id})")
             else:
                 from transformers import AutoTokenizer
                 self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
