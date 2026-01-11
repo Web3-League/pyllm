@@ -156,7 +156,7 @@ def render_sidebar():
             text-align: center;
             padding: 0.5rem;
         ">
-            PyLLM Inference v1.8.4
+            PyLLM Inference v1.8.5
         </div>
         """, unsafe_allow_html=True)
 
