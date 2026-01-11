@@ -15,7 +15,7 @@ def main():
     parser.add_argument(
         "--version", "-v",
         action="version",
-        version="pyllm 1.8.7",
+        version="pyllm 1.8.8",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Commands")

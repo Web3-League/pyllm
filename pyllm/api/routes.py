@@ -71,7 +71,7 @@ def create_app(config: Optional[Config] = None) -> FastAPI:
     app = FastAPI(
         title="PyLLM API",
         description="LLM Inference API with streaming support",
-        version="1.8.7",
+        version="1.8.8",
     )
 
     # CORS

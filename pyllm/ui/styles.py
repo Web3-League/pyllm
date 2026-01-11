@@ -43,7 +43,6 @@ def apply_styles():
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    [data-testid="stHeader"] {visibility: hidden;}
 
     /* ===== Header ===== */
     .header-container {
