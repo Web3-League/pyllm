@@ -1,15 +1,19 @@
 # PyLLM
 
-**Python LLM Inference with Streaming Chat** - A complete LLM inference platform with streaming responses, OpenAI-compatible API, and chat interface.
+**Python LLM Inference Server** with streaming, OpenAI-compatible API, and chat interface.
+
+[![PyPI version](https://badge.fury.io/py/pyllm-inference.svg)](https://badge.fury.io/py/pyllm-inference)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
 - **Streaming Generation** - Token-by-token streaming output
 - **OpenAI-Compatible API** - Drop-in replacement for OpenAI endpoints
-- **Multiple Backends** - Support for INL-LLM, HuggingFace Transformers
-- **Chat Templates** - Support for various formats (ChatML, Llama, Mistral, etc.)
-- **Streamlit UI** - Beautiful chat interface with Shadcn components
-- **CLI Tools** - Generate, chat, and serve from command line
+- **Multiple Backends** - Complexity, Complexity-Deep, HuggingFace Transformers
+- **Image Generation** - ComplexityDiT + ComplexityVAE support
+- **Chat Templates** - ChatML, Llama, Mistral, Alpaca, etc.
+- **Streamlit UI** - Beautiful chat interface
+- **KV Cache** - Fast autoregressive generation
 
 ## Installation
 
@@ -19,9 +23,18 @@ pip install pyllm-inference
 # With Streamlit UI
 pip install pyllm-inference[ui]
 
-# With INL-LLM support
-pip install pyllm-inference[inl]
+# With Complexity models
+pip install pyllm-inference complexity complexity-deep
 ```
+
+## Supported Models
+
+| Package | Description | Auto-detected |
+|---------|-------------|---------------|
+| `complexity` | Token-Routed MLP, QK Norm | Yes |
+| `complexity-deep` | + INL Dynamics | Yes |
+| `complexity-diffusion` | DiT + VAE for images | Yes |
+| `transformers` | HuggingFace models | Yes |
 
 ## Quick Start
 
@@ -29,16 +42,15 @@ pip install pyllm-inference[inl]
 
 ```bash
 # Start server with model
-pyllm serve --model path/to/model.safetensors
+pyllm serve --model path/to/model
 
-# Custom port
-pyllm serve --model path/to/model --port 8000
+# With specific port
+pyllm serve --model Pacific-Prime/complexity-tiny --port 8000
 ```
 
 ### Start the Chat UI
 
 ```bash
-# Start Streamlit UI
 pyllm ui --api-url http://localhost:8000
 ```
 
@@ -52,6 +64,53 @@ pyllm generate --model path/to/model --prompt "Hello, world!"
 pyllm chat --model path/to/model
 ```
 
+## Python Usage
+
+```python
+from pyllm.inference import InferenceEngine, GenerationConfig
+
+# Load model (auto-detects architecture)
+engine = InferenceEngine()
+engine.load("Pacific-Prime/complexity-tiny")
+
+# Generate with streaming
+for token in engine.generate("The quick brown fox"):
+    print(token, end="", flush=True)
+
+# With custom config
+config = GenerationConfig(
+    temperature=0.7,
+    top_p=0.9,
+    max_new_tokens=256,
+)
+for token in engine.generate("Hello", config):
+    print(token, end="", flush=True)
+```
+
+## Image Generation
+
+```python
+from pyllm.inference.diffusion import DiffusionEngine, ImageGenerationConfig
+
+# Load models
+engine = DiffusionEngine()
+engine.load(
+    vae_path="path/to/vae.safetensors",
+    dit_path="path/to/dit.safetensors",
+)
+
+# Generate image
+config = ImageGenerationConfig(
+    width=256,
+    height=256,
+    num_inference_steps=50,
+)
+result = engine.generate("a beautiful landscape", config)
+
+# Save
+result.to_pil().save("output.png")
+```
+
 ## API Endpoints
 
 ### OpenAI-Compatible
@@ -61,27 +120,6 @@ pyllm chat --model path/to/model
 | GET | `/v1/models` | List available models |
 | POST | `/v1/chat/completions` | Chat completion (streaming) |
 | POST | `/v1/generate` | Text generation (streaming) |
-
-### Example: Chat Completion
-
-```python
-import requests
-
-response = requests.post(
-    "http://localhost:8000/v1/chat/completions",
-    json={
-        "messages": [
-            {"role": "user", "content": "Hello!"}
-        ],
-        "stream": True
-    },
-    stream=True
-)
-
-for line in response.iter_lines():
-    if line:
-        print(line.decode())
-```
 
 ### Example: With OpenAI Client
 
@@ -103,41 +141,20 @@ for chunk in response:
     print(chunk.choices[0].delta.content, end="")
 ```
 
-## Python Usage
+## Architecture Detection
+
+PyLLM automatically detects model architecture from:
+
+1. `config.json` - `model_type` field
+2. State dict keys - `mlp.experts`, `dynamics`, `q_norm`
+3. Architecture field - `ComplexityForCausalLM`, `DeepForCausalLM`
 
 ```python
-from pyllm import InferenceEngine, Config
-from pyllm.inference import GenerationConfig, Message
-
-# Load model
-engine = InferenceEngine()
-engine.load("path/to/model.safetensors")
-
-# Generate with streaming
-for token in engine.generate("Hello, world!"):
-    print(token, end="", flush=True)
-
-# Chat
-messages = [
-    Message(role="user", content="What is Python?")
-]
-
-for token in engine.chat(messages):
-    print(token, end="", flush=True)
+# These all work automatically:
+engine.load("Pacific-Prime/complexity-tiny")  # complexity
+engine.load("path/to/complexity-deep-model")  # complexity-deep (has dynamics)
+engine.load("gpt2")  # transformers
 ```
-
-## Chat Templates
-
-Supports multiple chat formats:
-
-- **Simple** - `User: ... Assistant: ...`
-- **ChatML** - `<|im_start|>role ... <|im_end|>`
-- **Llama** - `[INST] ... [/INST]`
-- **Mistral** - `[INST] ... [/INST]`
-- **Alpaca** - `### Instruction: ... ### Response:`
-- **Vicuna** - `USER: ... ASSISTANT:`
-- **Phi** - `<|user|> ... <|assistant|>`
-- **Zephyr** - `<|user|>\n ... <|assistant|>\n`
 
 ## Configuration
 
@@ -146,7 +163,7 @@ Supports multiple chat formats:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PYLLM_MODEL_PATH` | Model path | None |
-| `PYLLM_DEVICE` | Device (cuda/cpu/mps) | cuda |
+| `PYLLM_DEVICE` | Device (cuda/cpu) | cuda |
 | `PYLLM_HOST` | Server host | 0.0.0.0 |
 | `PYLLM_PORT` | Server port | 8000 |
 
@@ -157,35 +174,22 @@ Supports multiple chat formats:
   "model": {
     "path": "path/to/model",
     "device": "cuda",
-    "max_seq_len": 1024
+    "max_seq_len": 2048
   },
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8000
+  "generation": {
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "repetition_penalty": 1.2
   }
 }
 ```
 
-## Architecture
+## Related Packages
 
-```
-pyllm/
-├── api/            # FastAPI routes (OpenAI-compatible)
-├── cli/            # Command line interface
-├── core/           # Configuration
-├── inference/      # LLM engine and generation
-│   ├── engine.py   # Main inference engine
-│   ├── generator.py # Async streaming wrapper
-│   └── templates.py # Chat templates
-└── ui/             # Streamlit chat interface
-```
+- **complexity** - Base LLM architecture
+- **complexity-deep** - LLM with INL Dynamics
+- **complexity-diffusion** - DiT for image generation
 
 ## License
 
-MIT License
-
-## Credits
-
-- Built for [INL-LLM](https://github.com/anthropics/pacific-prime) models
-- Compatible with [HuggingFace Transformers](https://huggingface.co/transformers)
-- UI powered by [Streamlit](https://streamlit.io/) + [Shadcn](https://ui.shadcn.com/)
+MIT

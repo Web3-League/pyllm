@@ -197,8 +197,13 @@ class InferenceEngine:
 
             # Detect model type from config
             model_type = model_config.get("model_type", "")
-            is_v2_legacy = "v2" in model_type.lower() or model_type == "inl-llm-v2"
-            is_complexity = model_type == "complexity" or "ComplexityForCausalLM" in str(model_config.get("architectures", []))
+            is_complexity = (
+                model_type == "complexity" or
+                model_type == "complexity-model" or
+                model_type == "complexity-deep" or
+                "ComplexityForCausalLM" in str(model_config.get("architectures", [])) or
+                "DeepForCausalLM" in str(model_config.get("architectures", []))
+            )
 
             # Load weights first to detect architecture
             if str(weights_path).endswith(".safetensors"):
@@ -211,25 +216,60 @@ class InferenceEngine:
                 else:
                     state_dict = checkpoint
 
-            # Detect Complexity architecture from state dict keys
+            # Detect ComplexityDeep architecture from state dict keys
             has_token_routed_mlp = any("mlp.experts" in k for k in state_dict.keys())
             has_qk_norm = any("q_norm" in k or "k_norm" in k for k in state_dict.keys())
-            if has_token_routed_mlp and has_qk_norm:
+            has_dynamics = any("dynamics" in k for k in state_dict.keys())
+
+            if has_token_routed_mlp or has_qk_norm or has_dynamics:
                 is_complexity = True
-                logger.info("Detected Complexity architecture from state dict keys (Token-Routed MLP + QK Norm)")
-
-            # Detect v2 architecture from state dict keys
-            has_qkv_proj = any("qkv_proj" in k for k in state_dict.keys())
-            has_ff_indexed = any("ff.0." in k for k in state_dict.keys())
-            has_pos_encoding = any("pos_encoding.pe" in k for k in state_dict.keys())
-
-            if has_qkv_proj and has_ff_indexed:
-                is_v2_legacy = True
-                logger.info("Detected v2 legacy architecture from state dict keys")
+                features = []
+                if has_token_routed_mlp:
+                    features.append("Token-Routed MLP")
+                if has_qk_norm:
+                    features.append("QK Norm")
+                if has_dynamics:
+                    features.append("INL Dynamics")
+                logger.info(f"Detected ComplexityDeep architecture from state dict keys ({', '.join(features)})")
 
             model_loaded = False
 
-            # Try Complexity model first (if detected)
+            # Determine which architecture to use
+            is_deep = (
+                model_type == "complexity-deep" or
+                has_dynamics or
+                "DeepForCausalLM" in str(model_config.get("architectures", []))
+            )
+
+            # Try Complexity Deep model (with INL Dynamics)
+            if is_complexity and is_deep and not model_loaded:
+                try:
+                    from complexity_deep import DeepConfig, DeepForCausalLM
+
+                    # Get Complexity-specific config
+                    num_experts = model_config.get("num_experts", 4)
+                    use_qk_norm = model_config.get("use_qk_norm", True)
+                    use_token_routed_mlp = model_config.get("use_token_routed_mlp", True)
+
+                    config = DeepConfig(
+                        vocab_size=vocab_size,
+                        hidden_size=d_model,
+                        intermediate_size=feedforward_dim,
+                        num_hidden_layers=num_layers,
+                        num_attention_heads=num_heads,
+                        num_key_value_heads=num_kv_heads,
+                        max_position_embeddings=self.config.max_seq_len,
+                        use_token_routed_mlp=use_token_routed_mlp,
+                        num_experts=num_experts,
+                        use_qk_norm=use_qk_norm,
+                    )
+                    self.model = DeepForCausalLM(config)
+                    model_loaded = True
+                    logger.info("Using ComplexityDeep architecture (Token-Routed MLP + INL Dynamics)")
+                except ImportError as e:
+                    logger.debug(f"ComplexityDeep import failed: {e}")
+
+            # Try Complexity Model (basic, without INL Dynamics)
             if is_complexity and not model_loaded:
                 try:
                     from complexity import ComplexityConfig, ComplexityForCausalLM
@@ -256,59 +296,9 @@ class InferenceEngine:
                     logger.info("Using Complexity architecture (Token-Routed MLP)")
                 except ImportError as e:
                     logger.debug(f"Complexity import failed: {e}")
-                    pass
-
-            # Try INL-LLM v3
-            if not model_loaded:
-                try:
-                    from inl_llm_v3.models.integrator_language_model import UltraOptimizedIntegratorLanguageModel
-
-                    # MoE parameters from config
-                    use_moe = model_config.get("use_moe", False)
-                    num_experts = model_config.get("num_experts", 8)
-                    moe_top_k = model_config.get("moe_top_k", 2)
-
-                    if use_moe:
-                        logger.info(f"MoE enabled: {num_experts} experts, top-k={moe_top_k}")
-
-                    self.model = UltraOptimizedIntegratorLanguageModel(
-                        vocab_size=vocab_size,
-                        d_model=d_model,
-                        num_layers=num_layers,
-                        num_heads=num_heads,
-                        num_kv_heads=num_kv_heads,
-                        feedforward_dim=feedforward_dim,
-                        num_iterations_per_layer=num_iterations,
-                        max_seq_len=max_seq_len,
-                        use_moe=use_moe,
-                        num_experts=num_experts,
-                        moe_top_k=moe_top_k
-                    )
-                    model_loaded = True
-                    logger.info("Using INL-LLM v3 architecture")
-                except ImportError:
-                    pass
-
-            # Try INL-LLM v2 (from pip install -e llm-dynamics)
-            if not model_loaded:
-                try:
-                    from inl_llm import UltraOptimizedIntegratorLanguageModel
-                    self.model = UltraOptimizedIntegratorLanguageModel(
-                        vocab_size=vocab_size,
-                        d_model=d_model,
-                        num_layers=num_layers,
-                        num_heads=num_heads,
-                        num_iterations_per_layer=num_iterations,
-                        feedforward_dim=feedforward_dim,
-                        max_seq_len=max_seq_len
-                    )
-                    model_loaded = True
-                    logger.info("Using INL-LLM v2 architecture (from pip)")
-                except ImportError:
-                    pass
 
             if not model_loaded:
-                logger.error("No compatible model module found. Install with: pip install complexity-model or pip install inl-llm")
+                logger.error("No compatible model module found. Install with: pip install complexity or pip install complexity-deep")
                 return False
 
             # Load weights

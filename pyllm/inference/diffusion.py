@@ -1,7 +1,8 @@
 """
-INL-Diffusion inference engine for image generation.
+Complexity-Diffusion inference engine for image generation.
 
-Provides text-to-image generation using INL-DiT and INL-VAE.
+Provides text-to-image generation using ComplexityDiT and ComplexityVAE.
+Supports both complexity_diffusion package.
 """
 
 import torch
@@ -59,7 +60,7 @@ class DiffusionEngine:
     """
     Diffusion inference engine for image generation.
 
-    Loads INL-VAE and INL-DiT models for text-to-image generation.
+    Loads ComplexityVAE and ComplexityDiT models for text-to-image generation.
     """
 
     def __init__(self, device: str = "cuda"):
@@ -106,53 +107,94 @@ class DiffusionEngine:
 
     def _load_vae(self, path: str):
         """Load VAE model."""
-        from inl_diffusion.vae import INLVAE
+        from complexity_diffusion import ComplexityVAE
 
-        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
-        config = checkpoint.get("config", {})
+        path_obj = Path(path)
 
-        self.vae = INLVAE(
+        # Support both .safetensors and .pt/.pth files
+        if str(path).endswith(".safetensors"):
+            from safetensors.torch import load_file
+            state_dict = load_file(path)
+            config = {}  # Config should be in separate config.json
+
+            # Try to load config from same directory
+            config_path = path_obj.parent / "config.json"
+            if config_path.exists():
+                import json
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+        else:
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+            config = checkpoint.get("config", {})
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
+
+        self.vae = ComplexityVAE(
             image_size=config.get("image_size", 256),
             base_channels=config.get("base_channels", 128),
             latent_dim=config.get("latent_dim", 4),
         ).to(self.device)
 
-        self.vae.load_state_dict(checkpoint["model_state_dict"])
+        self.vae.load_state_dict(state_dict)
         self.vae.eval()
 
         for param in self.vae.parameters():
             param.requires_grad = False
 
-        logger.info(f"VAE loaded: {self.vae.get_num_params() / 1e6:.2f}M params")
+        num_params = sum(p.numel() for p in self.vae.parameters())
+        logger.info(f"VAE loaded: {num_params / 1e6:.2f}M params")
 
     def _load_dit(self, path: str):
         """Load DiT model."""
-        from inl_diffusion.dit import INLDiT
+        from complexity_diffusion import ComplexityDiT
 
-        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
-        config = checkpoint.get("config", {})
+        path_obj = Path(path)
 
-        dit_size = config.get("dit_size", "L")
-        img_size = config.get("img_size", 32)
-        latent_channels = config.get("latent_channels", 4)
+        # Support both .safetensors and .pt/.pth files
+        if str(path).endswith(".safetensors"):
+            from safetensors.torch import load_file
+            state_dict = load_file(path)
+            config = {}
 
-        self.dit = INLDiT.from_config(
+            # Try to load config from same directory
+            config_path = path_obj.parent / "config.json"
+            if config_path.exists():
+                import json
+                with open(config_path, "r") as f:
+                    config = json.load(f)
+        else:
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+            config = checkpoint.get("config", {})
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
+
+        # Get DiT configuration
+        dit_size = config.get("dit_size", config.get("architecture", "L"))
+        # Extract size letter if full name given (e.g., "ComplexityDiT-S" -> "S")
+        if isinstance(dit_size, str) and "-" in dit_size:
+            dit_size = dit_size.split("-")[-1]
+
+        img_size = config.get("img_size", config.get("image_size", 32))
+        latent_channels = config.get("latent_channels", config.get("in_channels", 4))
+        context_dim = config.get("context_dim", 768)
+
+        self.dit = ComplexityDiT.from_config(
             dit_size,
             img_size=img_size,
             in_channels=latent_channels,
+            context_dim=context_dim,
         ).to(self.device)
 
-        self.dit.load_state_dict(checkpoint["model_state_dict"])
+        self.dit.load_state_dict(state_dict)
         self.dit.eval()
 
         for param in self.dit.parameters():
             param.requires_grad = False
 
-        logger.info(f"DiT loaded: {self.dit.get_num_params() / 1e6:.2f}M params")
+        num_params = sum(p.numel() for p in self.dit.parameters())
+        logger.info(f"DiT loaded: {num_params / 1e6:.2f}M params")
 
     def _load_text_encoder(self, path: str):
-        """Load text encoder (INL-LLM or CLIP)."""
-        # TODO: Implement loading INL-LLM as text encoder
+        """Load text encoder (Complexity LLM or CLIP)."""
+        # TODO: Implement loading Complexity LLM as text encoder
         self._create_dummy_text_encoder()
 
     def _create_dummy_text_encoder(self):
@@ -181,7 +223,7 @@ class DiffusionEngine:
 
     def _create_scheduler(self):
         """Create noise scheduler."""
-        from inl_diffusion.pipeline.text_to_image import DDIMScheduler
+        from complexity_diffusion.pipeline.text_to_image import DDIMScheduler
 
         self.scheduler = DDIMScheduler(
             num_train_timesteps=1000,
