@@ -8,7 +8,7 @@ with open("README.md", encoding="utf-8") as f:
 
 setup(
     name="pyllm-inference",
-    version="1.6.0",
+    version="1.8.1",
     author="nano3",
     author_email="",
     description="PyLLM: LLM Inference with Streaming Chat, OpenAI-compatible API, and TPU-INL acceleration",
@@ -40,18 +40,22 @@ setup(
             "streamlit-shadcn-ui>=0.1.0",
             "requests>=2.31.0",
         ],
-        "inl": [
-            "inl-llm>=3.0.0",
+        "complexity": [
+            "complexity-model>=0.7.0",
         ],
-        "tpu-inl": [
-            "tpu-inl>=0.1.0",
+        "complexity-deep": [
+            "complexity-deep>=0.4.0",
+        ],
+        "diffusion": [
+            "complexity-diffusion>=0.1.0",
         ],
         "cuda": [
-            "tpu-inl[cuda]>=0.1.0",
+            "triton>=2.0.0",
         ],
         "all": [
-            "tpu-inl>=0.1.0",
-            "inl-llm>=3.0.0",
+            "complexity-model>=0.7.0",
+            "complexity-deep>=0.4.0",
+            "complexity-diffusion>=0.1.0",
             "streamlit>=1.28.0",
             "streamlit-shadcn-ui>=0.1.0",
             "requests>=2.31.0",

@@ -9,15 +9,22 @@ import streamlit as st
 from pyllm.ui.state import init_session_state, get_messages, add_message, set_generating, is_generating
 from pyllm.ui.styles import apply_styles
 from pyllm.ui.api import get_client
-from pyllm.ui.components.chat import render_message, render_chat_input
+from pyllm.ui.components.chat import render_message, render_chat_input, render_streaming_message
 from pyllm.ui.components.sidebar import render_sidebar
+
+# Try to import streamlit_shadcn_ui
+try:
+    import streamlit_shadcn_ui as ui
+    HAS_SHADCN = True
+except ImportError:
+    HAS_SHADCN = False
 
 
 def main():
     """Main application."""
     st.set_page_config(
         page_title="PyLLM Chat",
-        page_icon="🤖",
+        page_icon="P",
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -28,8 +35,13 @@ def main():
     # Sidebar
     settings = render_sidebar()
 
-    # Main content
-    st.markdown("# 🤖 PyLLM Chat")
+    # Main content header
+    st.markdown("""
+    <div class="header-container">
+        <div class="header-logo">P</div>
+        <div class="header-title">PyLLM Chat</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Messages container
     messages_container = st.container()
@@ -39,13 +51,10 @@ def main():
 
         if not messages:
             st.markdown("""
-            <div style="
-                text-align: center;
-                padding: 3rem;
-                color: #6b7280;
-            ">
-                <h3>Welcome to PyLLM Chat</h3>
-                <p>Start a conversation by typing a message below.</p>
+            <div class="welcome-container">
+                <div class="welcome-icon">P</div>
+                <h3 class="welcome-title">Welcome to PyLLM Chat</h3>
+                <p class="welcome-subtitle">Start a conversation by typing a message below.</p>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -91,12 +100,10 @@ def main():
                 max_tokens=settings["max_tokens"],
             ):
                 response_tokens.append(token)
-                response_placeholder.markdown(f"""
-                <div class="assistant-message">
-                    <div class="message-role">Assistant</div>
-                    <div class="message-content">{"".join(response_tokens)}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                response_placeholder.markdown(
+                    render_streaming_message("".join(response_tokens)),
+                    unsafe_allow_html=True
+                )
 
             response = "".join(response_tokens)
             add_message("assistant", response)
