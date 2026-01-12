@@ -422,10 +422,31 @@ class InferenceEngine:
         inputs = self.tokenizer(prompt, return_tensors="pt")
         input_ids = inputs.input_ids.to(self.device)
 
-        # Generate with streaming
-        with torch.no_grad():
-            for token in self._generate_tokens(input_ids, config):
-                yield token
+        # Use model's native generate if available (for ComplexityDeep with INL Dynamics)
+        if hasattr(self.model, 'generate') and callable(self.model.generate):
+            logger.info("Using model's native generate method")
+            with torch.no_grad():
+                output_ids = self.model.generate(
+                    input_ids,
+                    max_new_tokens=config.max_new_tokens,
+                    temperature=config.temperature if config.temperature > 0 else 1.0,
+                    top_k=config.top_k,
+                    top_p=config.top_p,
+                    do_sample=config.do_sample and config.temperature > 0,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                )
+                # Yield only new tokens (skip input)
+                new_tokens = output_ids[0, input_ids.shape[1]:]
+                for token_id in new_tokens:
+                    if token_id == self.tokenizer.eos_token_id:
+                        break
+                    token_text = self.tokenizer.decode([token_id.item()], skip_special_tokens=True)
+                    yield token_text
+        else:
+            # Fallback to our custom generation loop
+            with torch.no_grad():
+                for token in self._generate_tokens(input_ids, config):
+                    yield token
 
     def _get_ngrams(self, token_ids: List[int], n: int) -> set:
         """Extract all n-grams from a list of token ids."""
