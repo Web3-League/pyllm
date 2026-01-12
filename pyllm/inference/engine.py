@@ -551,6 +551,9 @@ class InferenceEngine:
             use_greedy = config.temperature <= 0 or not config.do_sample
 
             if not use_greedy:
+                # Save original logits for fallback BEFORE any filtering
+                original_logits = logits.clone()
+
                 # Apply temperature
                 logits = logits / config.temperature
 
@@ -577,9 +580,9 @@ class InferenceEngine:
                 # Check if all logits are -inf (would cause NaN in softmax)
                 valid_logits = logits[logits != float('-inf')]
                 if valid_logits.numel() == 0 or torch.isnan(logits).any() or torch.isinf(logits).all():
-                    # Fallback to greedy if sampling would fail
-                    logger.warning("Invalid logits detected, falling back to greedy decoding")
-                    next_token = torch.argmax(logits, dim=-1, keepdim=True)
+                    # Fallback to greedy using ORIGINAL logits (before filtering)
+                    logger.warning("Invalid logits after filtering, falling back to greedy decoding")
+                    next_token = torch.argmax(original_logits, dim=-1, keepdim=True)
                 else:
                     probs = torch.softmax(logits, dim=-1)
                     # Clamp to avoid numerical issues
