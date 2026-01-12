@@ -36,6 +36,11 @@ class GenerationConfig:
     repetition_penalty: float = 1.2
     max_new_tokens: int = 256
     do_sample: bool = True
+    # INL Dynamics for inference (velocity-aware generation) - ENABLED BY DEFAULT
+    use_dynamics: bool = True
+    dynamics_strength: float = 0.1
+    dynamics_alpha: float = 0.9   # Inertia (momentum)
+    dynamics_beta: float = 0.1    # Correction strength
 
 
 @dataclass
@@ -200,18 +205,29 @@ class InferenceEngine:
         input_ids = inputs["input_ids"].to(self.device)
 
         logger.info(f"Generating with temp={config.temperature}, top_k={config.top_k}, top_p={config.top_p}")
+        if config.use_dynamics:
+            logger.info(f"INL Dynamics enabled: strength={config.dynamics_strength}, alpha={config.dynamics_alpha}, beta={config.dynamics_beta}")
 
         # Use model's native generate
         with torch.no_grad():
-            output_ids = self.model.generate(
-                input_ids,
-                max_new_tokens=config.max_new_tokens,
-                temperature=config.temperature if config.temperature > 0 else 1.0,
-                top_k=config.top_k,
-                top_p=config.top_p,
-                do_sample=config.do_sample and config.temperature > 0,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
+            # Build generate kwargs - only pass dynamics params if model supports them
+            generate_kwargs = {
+                "max_new_tokens": config.max_new_tokens,
+                "temperature": config.temperature if config.temperature > 0 else 1.0,
+                "top_k": config.top_k,
+                "top_p": config.top_p,
+                "do_sample": config.do_sample and config.temperature > 0,
+                "eos_token_id": self.tokenizer.eos_token_id,
+            }
+
+            # Add full INL Dynamics params (PID with mu)
+            if config.use_dynamics:
+                generate_kwargs["use_dynamics"] = True
+                generate_kwargs["dynamics_strength"] = config.dynamics_strength
+                generate_kwargs["dynamics_alpha"] = config.dynamics_alpha
+                generate_kwargs["dynamics_beta"] = config.dynamics_beta
+
+            output_ids = self.model.generate(input_ids, **generate_kwargs)
 
         # Yield new tokens only
         new_tokens = output_ids[0, input_ids.shape[1]:]

@@ -346,11 +346,22 @@ class IntegratorLanguageModelLegacy(nn.Module):
         do_sample: bool = True,
         use_cache: bool = True,
         repetition_penalty: float = 1.0,
-        eos_token_id: Optional[int] = None
+        eos_token_id: Optional[int] = None,
+        # INL Dynamics for inference (PID with mu) - ENABLED BY DEFAULT
+        use_dynamics: bool = True,
+        dynamics_strength: float = 0.1,
+        dynamics_alpha: float = 0.9,  # Inertia (momentum)
+        dynamics_beta: float = 0.1,   # Correction strength
     ) -> torch.Tensor:
-        """Autoregressive generation with KV caching."""
+        """Autoregressive generation with KV caching and optional INL dynamics."""
         self.eval()
         past_key_values = None
+
+        # INL Dynamics state for inference
+        # velocity_logits tracks the "momentum" in token probability space
+        velocity_logits = None
+        # mu is the running mean of logits (equilibrium)
+        mu_logits = None
 
         with torch.no_grad():
             for step in range(max_new_tokens):
@@ -369,6 +380,26 @@ class IntegratorLanguageModelLegacy(nn.Module):
                     )
 
                 logits = logits[:, -1, :] / temperature
+
+                # INL Dynamics for inference (PID-style smoothing)
+                if use_dynamics and dynamics_strength > 0:
+                    if velocity_logits is None:
+                        # Initialize on first step
+                        velocity_logits = torch.zeros_like(logits)
+                        mu_logits = logits.clone()
+                    else:
+                        # Update mu (exponential moving average - the equilibrium)
+                        mu_logits = dynamics_alpha * mu_logits + (1 - dynamics_alpha) * logits
+
+                        # PID-style dynamics: error = current - equilibrium
+                        error = logits - mu_logits
+
+                        # Update velocity with correction
+                        velocity_logits = dynamics_alpha * velocity_logits - dynamics_beta * error
+
+                        # Apply velocity as soft bias to logits
+                        velocity_bias = torch.tanh(velocity_logits) * dynamics_strength
+                        logits = logits + velocity_bias
 
                 # Repetition penalty
                 if repetition_penalty != 1.0:
