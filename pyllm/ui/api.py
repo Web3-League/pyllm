@@ -50,7 +50,7 @@ class APIClient:
                     "stream": True,
                 },
                 stream=True,
-                timeout=120,
+                timeout=(30, 600),  # 30s connect, 600s read (CPU inference is slow)
             )
 
             for line in response.iter_lines():
@@ -90,7 +90,7 @@ class APIClient:
                     "stream": True,
                 },
                 stream=True,
-                timeout=120,
+                timeout=(30, 600),  # 30s connect, 600s read (CPU inference is slow)
             )
 
             for line in response.iter_lines():
